@@ -1,7 +1,7 @@
 // AXI to Avalon Bridge
 // Converts AXI4 bursts to 16-bit Avalon accesses
 // AXI Slave interface (64-bit) to Avalon Master interface (16-bit)
-// FINAL VERSION - with write timing matching read timing
+// FIXED VERSION - with proper FIFO wrapping
 
 module axi_burst_master_to_avalon16 #(
     parameter AXI_ADDR_WIDTH = 32,
@@ -66,7 +66,6 @@ module axi_burst_master_to_avalon16 #(
 // Local Parameters
 // ====================================================
 localparam BEATS_PER_AXI = AXI_DATA_WIDTH / AVALON_DATA_WIDTH;  // 64/16 = 4
-localparam STRB_PER_AXI = AXI_DATA_WIDTH / 8;                   // 64/8 = 8
 localparam STRB_PER_AVALON = AVALON_DATA_WIDTH / 8;             // 16/8 = 2
 
 // ====================================================
@@ -74,8 +73,8 @@ localparam STRB_PER_AVALON = AVALON_DATA_WIDTH / 8;             // 16/8 = 2
 // ====================================================
 localparam IDLE         = 4'd0;
 localparam WRITE_DATA   = 4'd2;
-localparam WRITE_ADDR   = 4'd3;      // New: set up write address/data (like READ_ADDR)
-localparam WRITE_AVALON = 4'd4;      // Assert write (like READ_AVALON)
+localparam WRITE_ADDR   = 4'd3;
+localparam WRITE_AVALON = 4'd4;
 localparam WRITE_RESP   = 4'd5;
 localparam READ_ADDR    = 4'd6;
 localparam READ_AVALON  = 4'd7;
@@ -87,12 +86,12 @@ localparam READ_DATA    = 4'd9;
 // ====================================================
 reg [3:0] state;
 
-// Write FIFO
+// Write FIFO - use integer indices for clarity
 reg [AVALON_ADDR_WIDTH-1:0] write_addr_fifo [0:FIFO_DEPTH-1];
 reg [AVALON_DATA_WIDTH-1:0] write_data_fifo [0:FIFO_DEPTH-1];
 reg [1:0]                   write_strb_fifo [0:FIFO_DEPTH-1];
-reg [7:0]                   write_head;
-reg [7:0]                   write_tail;
+reg [$clog2(FIFO_DEPTH)-1:0] write_head;
+reg [$clog2(FIFO_DEPTH)-1:0] write_tail;
 wire                        write_fifo_empty;
 wire                        write_fifo_full;
 
@@ -105,7 +104,7 @@ reg                         write_burst_active;
 reg                         write_response_pending;
 reg                         write_resp_sent;
 
-// Write pipeline registers (like read_addr_reg/read_valid_reg)
+// Write pipeline registers
 reg [AVALON_ADDR_WIDTH-1:0] write_addr_reg;
 reg [AVALON_DATA_WIDTH-1:0] write_data_reg;
 reg [1:0]                   write_be_reg;
@@ -133,7 +132,7 @@ reg [15:0] write_timeout;
 reg [15:0] read_timeout;
 
 // ====================================================
-// FIFO Status
+// FIFO Status - FIXED: use modulo arithmetic for wrap-around
 // ====================================================
 assign write_fifo_empty = (write_head == write_tail);
 assign write_fifo_full = (((write_tail + 1) % FIFO_DEPTH) == write_head);
@@ -253,19 +252,20 @@ always @(posedge clk or negedge reset_n) begin
                                  s_wstrb[i * 2 +: 2]);
                     end
                     
-                    write_tail <= write_tail + BEATS_PER_AXI;
+                    // FIXED: Use modulo arithmetic for tail pointer
+                    write_tail <= (write_tail + BEATS_PER_AXI) % FIFO_DEPTH;
                     write_beat_count <= write_beat_count + 1;
                     
                     if (s_wlast) begin
                         $display("  [BRIDGE] Last write data received");
                         s_wready <= 1'b0;
-                        state <= WRITE_ADDR;  // Go to WRITE_ADDR first
+                        state <= WRITE_ADDR;
                     end
                 end
             end
             
             // ========================================
-            // WRITE: Set up address and data (like READ_ADDR)
+            // WRITE: Set up address and data
             // ========================================
             WRITE_ADDR: begin
                 if (!write_fifo_empty) begin
@@ -285,7 +285,7 @@ always @(posedge clk or negedge reset_n) begin
             end
             
             // ========================================
-            // WRITE: Assert write (like READ_AVALON)
+            // WRITE: Assert write
             // ========================================
             WRITE_AVALON: begin
                 // Drive address and data from registers and assert write
@@ -303,11 +303,13 @@ always @(posedge clk or negedge reset_n) begin
                 if (!m_waitrequest && m_write) begin
                     $display("  [BRIDGE] Write accepted at time %t", $time);
                     m_write <= 1'b0;
-                    write_head <= write_head + 1;
+                    
+                    // FIXED: Use modulo arithmetic for head pointer
+                    write_head <= (write_head + 1) % FIFO_DEPTH;
                     write_timeout <= 0;
                     
-                    // Check if all writes are done
-                    if (write_head == (write_tail - 1)) begin
+                    // FIXED: Check if all writes are done (handle wrap-around)
+                    if (((write_head + 1) % FIFO_DEPTH) == write_tail) begin
                         $display("  [BRIDGE] All writes completed at time %t", $time);
                         write_response_pending <= 1'b1;
                         state <= IDLE;
@@ -332,7 +334,7 @@ always @(posedge clk or negedge reset_n) begin
             // ========================================
             WRITE_RESP: begin
                 if (!s_bvalid) begin
-                    s_bresp <= 2'b00;  // OKAY
+                    s_bresp <= 2'b00;
                     s_bvalid <= 1'b1;
                     write_resp_sent <= 1'b1;
                     $display("  [BRIDGE] Sending write response at time %t", $time);

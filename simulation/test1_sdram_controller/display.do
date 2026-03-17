@@ -1,0 +1,50 @@
+add wave -position end  result:/top_tb/clk
+add wave -position end  result:/top_tb/reset_n
+
+add wave -divider
+add wave -position end  result:/top_tb/u_sdram_ctrl/active_addr
+add wave -position end  result:/top_tb/u_sdram_ctrl/active_dqm
+add wave -position end  result:/top_tb/u_sdram_ctrl/f_addr
+add wave -position end  result:/top_tb/u_sdram_ctrl/fifo_read_data
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_addr
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_data
+add wave -position end  result:/top_tb/avm_address
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_addr
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_be_n
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_cs
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_data
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_rd_n
+add wave -position end  result:/top_tb/u_sdram_ctrl/az_wr_n
+add wave -divider
+add wave -position end  result:/top_tb/avm_byteenable
+add wave -position end  result:/top_tb/avm_read
+add wave -position end  result:/top_tb/avm_write
+add wave -position end  result:/top_tb/avm_writedata
+add wave -position end  result:/top_tb/avs_readdata
+add wave -divider
+add wave -position end  result:/top_tb/axi_araddr
+add wave -position end  result:/top_tb/axi_arburst
+add wave -position end  result:/top_tb/axi_arlen
+add wave -position end  result:/top_tb/axi_arready
+add wave -position end  result:/top_tb/axi_arsize
+add wave -position end  result:/top_tb/axi_arvalid
+add wave -position end  result:/top_tb/axi_awaddr
+add wave -position end  result:/top_tb/axi_awburst
+add wave -position end  result:/top_tb/axi_awlen
+add wave -position end  result:/top_tb/axi_awready
+add wave -position end  result:/top_tb/axi_awsize
+add wave -position end  result:/top_tb/axi_awvalid
+add wave -position end  result:/top_tb/axi_bready
+add wave -position end  result:/top_tb/axi_bresp
+add wave -position end  result:/top_tb/axi_bvalid
+add wave -position end  result:/top_tb/axi_rdata
+add wave -position end  result:/top_tb/axi_rlast
+add wave -position end  result:/top_tb/axi_rready
+add wave -position end  result:/top_tb/axi_rresp
+add wave -position end  result:/top_tb/axi_rvalid
+add wave -position end  result:/top_tb/axi_wdata
+add wave -position end  result:/top_tb/axi_wlast
+add wave -position end  result:/top_tb/axi_wready
+add wave -position end  result:/top_tb/axi_wstrb
+add wave -position end  result:/top_tb/axi_wvalid
+add wave -divider

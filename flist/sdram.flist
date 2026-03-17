@@ -1,0 +1,2 @@
+${PROJECT_ROOT}/rtl/sdram_controller.v
+${PROJECT_ROOT}/rtl/sdram_bridge.v

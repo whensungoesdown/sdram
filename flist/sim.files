@@ -2,3 +2,4 @@ ${PROJECT_ROOT}/simulation/altera_mf.v
 
 ${PROJECT_ROOT}/rtl/sdram_controller.v
 ${PROJECT_ROOT}/rtl/sdram_bridge.v
+${PROJECT_ROOT}/rtl/models/sdram_controller_test_component.v
