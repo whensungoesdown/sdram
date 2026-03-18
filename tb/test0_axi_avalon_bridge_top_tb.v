@@ -10,6 +10,7 @@ localparam AXI_ADDR_WIDTH = 32;
 localparam AXI_DATA_WIDTH = 64;
 localparam AVALON_ADDR_WIDTH = 25;
 localparam AVALON_DATA_WIDTH = 16;
+localparam AXI_ID_WIDTH = 4;
 
 // ====================================================
 // Testbench Signals
@@ -18,6 +19,7 @@ reg                                 clk;
 reg                                 reset_n;
 
 // AXI Master Simulator Interface
+reg  [AXI_ID_WIDTH-1:0]             s_awid;
 reg  [AXI_ADDR_WIDTH-1:0]           s_awaddr;
 reg  [7:0]                          s_awlen;
 reg  [2:0]                          s_awsize;
@@ -31,10 +33,12 @@ reg                                 s_wlast;
 reg                                 s_wvalid;
 wire                                s_wready;
 
+wire [AXI_ID_WIDTH-1:0]             s_bid;
 wire [1:0]                          s_bresp;
 wire                                s_bvalid;
 reg                                 s_bready;
 
+reg  [AXI_ID_WIDTH-1:0]             s_arid;
 reg  [AXI_ADDR_WIDTH-1:0]           s_araddr;
 reg  [7:0]                          s_arlen;
 reg  [2:0]                          s_arsize;
@@ -42,6 +46,7 @@ reg  [1:0]                          s_arburst;
 reg                                 s_arvalid;
 wire                                s_arready;
 
+wire [AXI_ID_WIDTH-1:0]             s_rid;
 wire [AXI_DATA_WIDTH-1:0]           s_rdata;
 wire [1:0]                          s_rresp;
 wire                                s_rlast;
@@ -87,6 +92,7 @@ axi_burst_master_to_avalon16 #(
     .reset_n        (reset_n),
     
     // AXI Slave Interface
+    .s_awid         (s_awid),
     .s_awaddr       (s_awaddr),
     .s_awlen        (s_awlen),
     .s_awsize       (s_awsize),
@@ -100,10 +106,12 @@ axi_burst_master_to_avalon16 #(
     .s_wvalid       (s_wvalid),
     .s_wready       (s_wready),
     
+    .s_bid          (s_bid),
     .s_bresp        (s_bresp),
     .s_bvalid       (s_bvalid),
     .s_bready       (s_bready),
     
+    .s_arid         (s_arid),
     .s_araddr       (s_araddr),
     .s_arlen        (s_arlen),
     .s_arsize       (s_arsize),
@@ -111,6 +119,7 @@ axi_burst_master_to_avalon16 #(
     .s_arvalid      (s_arvalid),
     .s_arready      (s_arready),
     
+    .s_rid          (s_rid),
     .s_rdata        (s_rdata),
     .s_rresp        (s_rresp),
     .s_rlast        (s_rlast),

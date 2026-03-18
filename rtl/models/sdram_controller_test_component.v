@@ -34,15 +34,15 @@ module sdram_controller_test_component_ram_module (
 
   output  [ 15: 0] q;
   input   [ 15: 0] data;
-  input   [ 24: 0] rdaddress;
+  input   [ 23: 0] rdaddress;
   input            rdclken;
-  input   [ 24: 0] wraddress;
+  input   [ 23: 0] wraddress;
   input            wrclock;
   input            wren;
 
-  reg     [ 15: 0] mem_array [33554431: 0];
+  reg     [ 15: 0] mem_array [16777215: 0];
   wire    [ 15: 0] q;
-  reg     [ 24: 0] read_address;
+  reg     [ 23: 0] read_address;
 
 //synthesis translate_off
 //////////////// SIMULATION-ONLY CONTENTS
@@ -93,7 +93,7 @@ initial
 //           lpm_ram_dp_component.lpm_outdata = "UNREGISTERED",
 //           lpm_ram_dp_component.lpm_rdaddress_control = "UNREGISTERED",
 //           lpm_ram_dp_component.lpm_width = 16,
-//           lpm_ram_dp_component.lpm_widthad = 25,
+//           lpm_ram_dp_component.lpm_widthad = 24,
 //           lpm_ram_dp_component.lpm_wraddress_control = "REGISTERED",
 //           lpm_ram_dp_component.suppress_memory_conversion_warnings = "ON";
 //
@@ -133,7 +133,7 @@ module sdram_controller_test_component (
   input   [  1: 0] zs_ba;
   input            zs_cas_n;
   input            zs_cke;
-  input   [  1: 0] zs_cs_n;
+  input            zs_cs_n;
   input   [  1: 0] zs_dqm;
   input            zs_ras_n;
   input            zs_we_n;
@@ -141,34 +141,32 @@ module sdram_controller_test_component (
   wire    [ 23: 0] CODE;
   wire    [ 12: 0] a;
   wire    [  8: 0] addr_col;
-  reg     [ 15: 0] addr_crb;
+  reg     [ 14: 0] addr_crb;
   wire    [  1: 0] ba;
   wire             cas_n;
   wire             cke;
   wire    [  2: 0] cmd_code;
-  wire    [  1: 0] cs;
-  reg              cs_encode;
-  wire    [  1: 0] cs_n;
+  wire             cs_n;
   wire    [  1: 0] dqm;
   wire    [  2: 0] index;
   reg     [  2: 0] latency;
   wire    [  1: 0] mask;
   wire    [ 15: 0] mem_bytes;
   wire             ras_n;
-  reg     [ 24: 0] rd_addr_pipe_0;
-  reg     [ 24: 0] rd_addr_pipe_1;
-  reg     [ 24: 0] rd_addr_pipe_2;
+  reg     [ 23: 0] rd_addr_pipe_0;
+  reg     [ 23: 0] rd_addr_pipe_1;
+  reg     [ 23: 0] rd_addr_pipe_2;
   reg     [  1: 0] rd_mask_pipe_0;
   reg     [  1: 0] rd_mask_pipe_1;
   reg     [  1: 0] rd_mask_pipe_2;
   reg     [  2: 0] rd_valid_pipe;
-  wire    [ 24: 0] read_addr;
+  wire    [ 23: 0] read_addr;
   wire    [ 15: 0] read_data;
   wire    [  1: 0] read_mask;
   wire    [ 15: 0] read_temp;
   wire             read_valid;
   wire    [ 15: 0] rmw_temp;
-  wire    [ 24: 0] test_addr;
+  wire    [ 23: 0] test_addr;
   wire    [ 23: 0] txt_code;
   wire             we_n;
   wire    [ 15: 0] zs_dq;
@@ -203,28 +201,6 @@ initial
   assign a = zs_addr;
   assign cmd_code = {ras_n, cas_n, we_n};
   assign CODE = (&cs_n) ? 24'h494e48 : txt_code;
-  assign cs = ~cs_n;
-  //Encode 1-hot ChipSelects into high order address bit(s)
-  always @(cs)
-    begin
-      case (cs) // synthesis parallel_case
-      
-          2'b01: begin
-              cs_encode = 1'h0;
-          end // 2'b01 
-      
-          2'b10: begin
-              cs_encode = 1'h1;
-          end // 2'b10 
-      
-          default: begin
-              cs_encode = 1'h0;
-          end // default
-      
-      endcase // cs
-    end
-
-
   assign addr_col = a[8 : 0];
   assign test_addr = {addr_crb, addr_col};
   assign mem_bytes = read_data;
@@ -241,7 +217,7 @@ initial
               latency <= a[6 : 4];
           // ACT: Get Row/Bank Address.
           if (CODE == 24'h414354)
-              addr_crb <= {cs_encode, {ba[1], a, ba[0]}};
+              addr_crb <= {ba[1], a, ba[0]};
           rd_valid_pipe[2] <= rd_valid_pipe[1];
           rd_valid_pipe[1] <= rd_valid_pipe[0];
           rd_valid_pipe[0] <= CODE == 24'h205244;

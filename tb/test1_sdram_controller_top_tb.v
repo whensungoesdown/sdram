@@ -8,8 +8,9 @@ module top_tb();
 localparam CLK_PERIOD = 13.333;  // 75MHz = 13.333ns
 localparam AXI_ADDR_WIDTH = 32;
 localparam AXI_DATA_WIDTH = 64;
-localparam AVALON_ADDR_WIDTH = 25;
+localparam AVALON_ADDR_WIDTH = 24;
 localparam AVALON_DATA_WIDTH = 16;
+localparam AXI_ID_WIDTH = 4;
 
 // SDRAM geometry for W9825G6KH
 localparam SDRAM_ROW_BITS = 13;
@@ -24,6 +25,7 @@ reg                                 clk;
 reg                                 reset_n;
 
 // AXI Master Interface (from test stimulus)
+reg  [AXI_ID_WIDTH-1:0]             axi_awid;
 reg  [AXI_ADDR_WIDTH-1:0]           axi_awaddr;
 reg  [7:0]                          axi_awlen;
 reg  [2:0]                          axi_awsize;
@@ -37,10 +39,12 @@ reg                                 axi_wlast;
 reg                                 axi_wvalid;
 wire                                axi_wready;
 
+wire [AXI_ID_WIDTH-1:0]             axi_bid;
 wire [1:0]                          axi_bresp;
 wire                                axi_bvalid;
 reg                                 axi_bready;
 
+reg  [AXI_ID_WIDTH-1:0]             axi_arid;
 reg  [AXI_ADDR_WIDTH-1:0]           axi_araddr;
 reg  [7:0]                          axi_arlen;
 reg  [2:0]                          axi_arsize;
@@ -48,6 +52,7 @@ reg  [1:0]                          axi_arburst;
 reg                                 axi_arvalid;
 wire                                axi_arready;
 
+wire [AXI_ID_WIDTH-1:0]             axi_rid;
 wire [AXI_DATA_WIDTH-1:0]           axi_rdata;
 wire [1:0]                          axi_rresp;
 wire                                axi_rlast;
@@ -61,7 +66,7 @@ wire [1:0]                          sdram_ba;
 wire                                sdram_cas_n;
 wire                                sdram_ras_n;
 wire                                sdram_we_n;
-wire [1:0]                          sdram_cs_n;
+wire                                sdram_cs_n;
 wire                                sdram_cke;
 wire [1:0]                          sdram_dqm;
 
@@ -79,7 +84,7 @@ reg        response_received;
 // ====================================================
 // Internal signals between Bridge and SDRAM Controller
 // ====================================================
-wire [24:0]                         avm_address;
+wire [23:0]                         avm_address;
 wire                                avm_write;
 wire                                avm_read;
 wire [15:0]                         avm_writedata;
@@ -145,6 +150,7 @@ axi_burst_master_to_avalon16 #(
     .reset_n        (reset_n),
     
     // AXI Slave Interface
+    .s_awid         (axi_awid),
     .s_awaddr       (axi_awaddr),
     .s_awlen        (axi_awlen),
     .s_awsize       (axi_awsize),
@@ -158,10 +164,12 @@ axi_burst_master_to_avalon16 #(
     .s_wvalid       (axi_wvalid),
     .s_wready       (axi_wready),
     
+    .s_bid          (axi_bid),
     .s_bresp        (axi_bresp),
     .s_bvalid       (axi_bvalid),
     .s_bready       (axi_bready),
     
+    .s_arid         (axi_arid),
     .s_araddr       (axi_araddr),
     .s_arlen        (axi_arlen),
     .s_arsize       (axi_arsize),
@@ -169,6 +177,7 @@ axi_burst_master_to_avalon16 #(
     .s_arvalid      (axi_arvalid),
     .s_arready      (axi_arready),
     
+    .s_rid          (axi_rid),
     .s_rdata        (axi_rdata),
     .s_rresp        (axi_rresp),
     .s_rlast        (axi_rlast),
@@ -1058,7 +1067,7 @@ endtask
 // ====================================================
 always @(posedge clk) begin
     // Monitor SDRAM commands
-    if (!sdram_cs_n[0] || !sdram_cs_n[1]) begin
+    if (!sdram_cs_n) begin
         if (!sdram_ras_n && !sdram_cas_n && sdram_we_n) begin
             $display("  [SDRAM] ACTIVE: Bank=%0d Row=%0d at time %t", 
                      sdram_ba, sdram_addr, $time);

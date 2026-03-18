@@ -5,7 +5,7 @@
 module axi_burst_master_to_avalon16 #(
     parameter AXI_ADDR_WIDTH = 32,
     parameter AXI_DATA_WIDTH = 64,
-    parameter AVALON_ADDR_WIDTH = 25,
+    parameter AVALON_ADDR_WIDTH = 24,
     parameter AVALON_DATA_WIDTH = 16,
     parameter AXI_MAX_BURST = 16,
     parameter FIFO_DEPTH = 32,
