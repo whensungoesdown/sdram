@@ -1,7 +1,6 @@
-// AXI to Avalon Bridge
+// AXI to Avalon Bridge with ID support
 // Converts AXI4 bursts to 16-bit Avalon accesses
 // AXI Slave interface (64-bit) to Avalon Master interface (16-bit)
-// FIXED VERSION - with proper FIFO wrapping
 
 module axi_burst_master_to_avalon16 #(
     parameter AXI_ADDR_WIDTH = 32,
@@ -9,13 +8,15 @@ module axi_burst_master_to_avalon16 #(
     parameter AVALON_ADDR_WIDTH = 25,
     parameter AVALON_DATA_WIDTH = 16,
     parameter AXI_MAX_BURST = 16,
-    parameter FIFO_DEPTH = 32
+    parameter FIFO_DEPTH = 32,
+    parameter AXI_ID_WIDTH = 4      // Added ID width parameter
 ) (
     // Clock and reset
     input  wire                        clk,
     input  wire                        reset_n,
     
-    // AXI4 Slave Interface
+    // AXI4 Slave Interface - Write Address Channel with ID
+    input  wire [AXI_ID_WIDTH-1:0]     s_awid,      // Added
     input  wire [AXI_ADDR_WIDTH-1:0]   s_awaddr,
     input  wire [7:0]                   s_awlen,
     input  wire [2:0]                   s_awsize,
@@ -30,12 +31,14 @@ module axi_burst_master_to_avalon16 #(
     input  wire                         s_wvalid,
     output reg                          s_wready,
     
-    // Write Response Channel
+    // Write Response Channel with ID
+    output reg  [AXI_ID_WIDTH-1:0]      s_bid,       // Added
     output reg  [1:0]                   s_bresp,
     output reg                          s_bvalid,
     input  wire                         s_bready,
     
-    // Read Address Channel
+    // Read Address Channel with ID
+    input  wire [AXI_ID_WIDTH-1:0]     s_arid,      // Added
     input  wire [AXI_ADDR_WIDTH-1:0]   s_araddr,
     input  wire [7:0]                   s_arlen,
     input  wire [2:0]                   s_arsize,
@@ -43,7 +46,8 @@ module axi_burst_master_to_avalon16 #(
     input  wire                         s_arvalid,
     output reg                          s_arready,
     
-    // Read Data Channel
+    // Read Data Channel with ID
+    output reg  [AXI_ID_WIDTH-1:0]      s_rid,       // Added
     output reg  [AXI_DATA_WIDTH-1:0]   s_rdata,
     output reg  [1:0]                   s_rresp,
     output reg                          s_rlast,
@@ -86,42 +90,46 @@ localparam READ_DATA    = 4'd9;
 // ====================================================
 reg [3:0] state;
 
-// Write FIFO - use integer indices for clarity
-reg [AVALON_ADDR_WIDTH-1:0] write_addr_fifo [0:FIFO_DEPTH-1];
-reg [AVALON_DATA_WIDTH-1:0] write_data_fifo [0:FIFO_DEPTH-1];
-reg [1:0]                   write_strb_fifo [0:FIFO_DEPTH-1];
+// Write FIFO - store data, address, strobe, and ID
+reg [AXI_ID_WIDTH-1:0]       write_id_fifo [0:FIFO_DEPTH-1];      // Added ID FIFO
+reg [AVALON_ADDR_WIDTH-1:0]  write_addr_fifo [0:FIFO_DEPTH-1];
+reg [AVALON_DATA_WIDTH-1:0]  write_data_fifo [0:FIFO_DEPTH-1];
+reg [1:0]                    write_strb_fifo [0:FIFO_DEPTH-1];
 reg [$clog2(FIFO_DEPTH)-1:0] write_head;
 reg [$clog2(FIFO_DEPTH)-1:0] write_tail;
-wire                        write_fifo_empty;
-wire                        write_fifo_full;
+wire                         write_fifo_empty;
+wire                         write_fifo_full;
 
 // Write tracking
-reg [AXI_ADDR_WIDTH-1:0]    write_base_addr;
-reg [7:0]                   write_len;
-reg [7:0]                   write_beat_count;
-reg [7:0]                   write_total_beats;
-reg                         write_burst_active;
-reg                         write_response_pending;
-reg                         write_resp_sent;
+reg [AXI_ADDR_WIDTH-1:0]     write_base_addr;
+reg [AXI_ID_WIDTH-1:0]       write_id;            // Added: store AWID
+reg [7:0]                    write_len;
+reg [7:0]                    write_beat_count;
+reg [7:0]                    write_total_beats;
+reg                          write_burst_active;
+reg                          write_response_pending;
+reg                          write_resp_sent;
+reg [AXI_ID_WIDTH-1:0]       write_resp_id;       // Added: ID for response
 
 // Write pipeline registers
-reg [AVALON_ADDR_WIDTH-1:0] write_addr_reg;
-reg [AVALON_DATA_WIDTH-1:0] write_data_reg;
-reg [1:0]                   write_be_reg;
-reg                         write_valid_reg;
+reg [AVALON_ADDR_WIDTH-1:0]  write_addr_reg;
+reg [AVALON_DATA_WIDTH-1:0]  write_data_reg;
+reg [1:0]                    write_be_reg;
+reg                          write_valid_reg;
 
 // Read tracking
-reg [AXI_ADDR_WIDTH-1:0]    read_base_addr;
-reg [7:0]                   read_len;
-reg [7:0]                   read_beat_count;
-reg [2:0]                   read_sub_count;
-reg [15:0]                  read_hold [0:3];
-reg                         read_burst_active;
+reg [AXI_ADDR_WIDTH-1:0]     read_base_addr;
+reg [AXI_ID_WIDTH-1:0]       read_id;             // Added: store ARID
+reg [7:0]                    read_len;
+reg [7:0]                    read_beat_count;
+reg [2:0]                    read_sub_count;
+reg [15:0]                   read_hold [0:3];
+reg                          read_burst_active;
 
 // Read address pipeline
-reg [AVALON_ADDR_WIDTH-1:0] read_addr_reg;
-reg                         read_valid_reg;
-reg [2:0]                   read_sub_reg;
+reg [AVALON_ADDR_WIDTH-1:0]  read_addr_reg;
+reg                          read_valid_reg;
+reg [2:0]                    read_sub_reg;
 
 // Loop variables
 integer i;
@@ -132,7 +140,7 @@ reg [15:0] write_timeout;
 reg [15:0] read_timeout;
 
 // ====================================================
-// FIFO Status - FIXED: use modulo arithmetic for wrap-around
+// FIFO Status
 // ====================================================
 assign write_fifo_empty = (write_head == write_tail);
 assign write_fifo_full = (((write_tail + 1) % FIFO_DEPTH) == write_head);
@@ -147,9 +155,11 @@ always @(posedge clk or negedge reset_n) begin
         s_wready <= 1'b0;
         s_bvalid <= 1'b0;
         s_bresp <= 2'b00;
+        s_bid <= {AXI_ID_WIDTH{1'b0}};
         s_arready <= 1'b0;
         s_rvalid <= 1'b0;
         s_rlast <= 1'b0;
+        s_rid <= {AXI_ID_WIDTH{1'b0}};
         s_rdata <= 64'b0;
         m_write <= 1'b0;
         m_read <= 1'b0;
@@ -194,8 +204,9 @@ always @(posedge clk or negedge reset_n) begin
                 end
                 // Check for write request
                 else if (s_awvalid && s_awready) begin
-                    // Write request
+                    // Write request - store AWID
                     write_base_addr <= s_awaddr;
+                    write_id <= s_awid;                // Store ID
                     write_len <= s_awlen;
                     write_total_beats <= s_awlen + 1;
                     write_beat_count <= 0;
@@ -203,20 +214,23 @@ always @(posedge clk or negedge reset_n) begin
                     write_resp_sent <= 1'b0;
                     s_awready <= 1'b0;
                     s_arready <= 1'b0;
-                    $display("  [BRIDGE] Write request: addr=%h len=%0d", s_awaddr, s_awlen);
+                    $display("  [BRIDGE] Write request: ID=%0d addr=%h len=%0d", 
+                             s_awid, s_awaddr, s_awlen);
                     state <= WRITE_DATA;
                 end
                 // Check for read request
                 else if (s_arvalid && s_arready) begin
-                    // Read request
+                    // Read request - store ARID
                     read_base_addr <= s_araddr;
+                    read_id <= s_arid;                  // Store ID
                     read_len <= s_arlen;
                     read_beat_count <= 0;
                     read_sub_count <= 0;
                     read_burst_active <= 1'b1;
                     s_arready <= 1'b0;
                     s_awready <= 1'b0;
-                    $display("  [BRIDGE] Read request: addr=%h len=%0d", s_araddr, s_arlen);
+                    $display("  [BRIDGE] Read request: ID=%0d addr=%h len=%0d", 
+                             s_arid, s_araddr, s_arlen);
                     state <= READ_ADDR;
                 end
             end
@@ -235,6 +249,9 @@ always @(posedge clk or negedge reset_n) begin
                     for (i = 0; i < BEATS_PER_AXI; i = i + 1) begin
                         fifo_idx = (write_tail + i) % FIFO_DEPTH;
                         
+                        // Store ID (same for all sub-beats)
+                        write_id_fifo[fifo_idx] <= write_id;
+                        
                         // Store 16-bit word
                         write_data_fifo[fifo_idx] <= s_wdata[i * 16 +: 16];
                         
@@ -245,19 +262,21 @@ always @(posedge clk or negedge reset_n) begin
                         write_addr_fifo[fifo_idx] <= (write_base_addr >> 1) + 
                                                      (write_beat_count * BEATS_PER_AXI) + i;
                         
-                        $display("  [BRIDGE]   FIFO[%0d]: addr=%h data=%h be=%b", 
-                                 fifo_idx,
+                        $display("  [BRIDGE]   FIFO[%0d]: ID=%0d addr=%h data=%h be=%b", 
+                                 fifo_idx, write_id,
                                  (write_base_addr >> 1) + (write_beat_count * BEATS_PER_AXI) + i,
                                  s_wdata[i * 16 +: 16],
                                  s_wstrb[i * 2 +: 2]);
                     end
                     
-                    // FIXED: Use modulo arithmetic for tail pointer
+                    // Update tail pointer
                     write_tail <= (write_tail + BEATS_PER_AXI) % FIFO_DEPTH;
                     write_beat_count <= write_beat_count + 1;
                     
+                    // Store ID for response (use the last beat's ID)
                     if (s_wlast) begin
-                        $display("  [BRIDGE] Last write data received");
+                        write_resp_id <= write_id;
+                        $display("  [BRIDGE] Last write data received, response ID=%0d", write_id);
                         s_wready <= 1'b0;
                         state <= WRITE_ADDR;
                     end
@@ -275,7 +294,8 @@ always @(posedge clk or negedge reset_n) begin
                     write_be_reg <= write_strb_fifo[write_head];
                     write_valid_reg <= 1'b1;
                     
-                    $display("  [BRIDGE] WRITE_ADDR: addr=%h data=%h be=%b", 
+                    $display("  [BRIDGE] WRITE_ADDR: ID=%0d addr=%h data=%h be=%b", 
+                             write_id_fifo[write_head],
                              write_addr_fifo[write_head], 
                              write_data_fifo[write_head], 
                              write_strb_fifo[write_head]);
@@ -304,11 +324,11 @@ always @(posedge clk or negedge reset_n) begin
                     $display("  [BRIDGE] Write accepted at time %t", $time);
                     m_write <= 1'b0;
                     
-                    // FIXED: Use modulo arithmetic for head pointer
+                    // Update head pointer
                     write_head <= (write_head + 1) % FIFO_DEPTH;
                     write_timeout <= 0;
                     
-                    // FIXED: Check if all writes are done (handle wrap-around)
+                    // Check if all writes are done
                     if (((write_head + 1) % FIFO_DEPTH) == write_tail) begin
                         $display("  [BRIDGE] All writes completed at time %t", $time);
                         write_response_pending <= 1'b1;
@@ -334,14 +354,17 @@ always @(posedge clk or negedge reset_n) begin
             // ========================================
             WRITE_RESP: begin
                 if (!s_bvalid) begin
-                    s_bresp <= 2'b00;
+                    s_bresp <= 2'b00;           // OKAY response
+                    s_bid <= write_resp_id;      // Return stored ID
                     s_bvalid <= 1'b1;
                     write_resp_sent <= 1'b1;
-                    $display("  [BRIDGE] Sending write response at time %t", $time);
+                    $display("  [BRIDGE] Sending write response: ID=%0d at time %t", 
+                             write_resp_id, $time);
                 end
                 
                 if (s_bvalid && s_bready) begin
-                    $display("  [BRIDGE] Write response accepted at time %t", $time);
+                    $display("  [BRIDGE] Write response accepted: ID=%0d at time %t", 
+                             s_bid, $time);
                     s_bvalid <= 1'b0;
                     s_awready <= 1'b1;
                     s_arready <= 1'b1;
@@ -372,8 +395,8 @@ always @(posedge clk or negedge reset_n) begin
                 read_sub_reg <= read_sub_count;
                 read_valid_reg <= 1'b1;
                 
-                $display("  [BRIDGE] READ_ADDR: beat=%0d sub=%0d addr=0x%h", 
-                         read_beat_count, read_sub_count, read_addr_reg);
+                $display("  [BRIDGE] READ_ADDR: ID=%0d beat=%0d sub=%0d addr=0x%h", 
+                         read_id, read_beat_count, read_sub_count, read_addr_reg);
                 
                 state <= READ_AVALON;
             end
@@ -423,15 +446,17 @@ always @(posedge clk or negedge reset_n) begin
             READ_COMBINE: begin
                 // Little-endian: hold[0] is LSB, hold[3] is MSB
                 s_rdata <= {read_hold[3], read_hold[2], read_hold[1], read_hold[0]};
+                s_rid <= read_id;                       // Return stored ID
                 s_rvalid <= 1'b1;
                 
-                $display("  [BRIDGE] Combining: {%h, %h, %h, %h} = %h", 
+                $display("  [BRIDGE] Combining: ID=%0d {%h, %h, %h, %h} = %h", 
+                         read_id,
                          read_hold[3], read_hold[2], read_hold[1], read_hold[0],
                          {read_hold[3], read_hold[2], read_hold[1], read_hold[0]});
                 
                 if (read_beat_count == read_len) begin
                     s_rlast <= 1'b1;
-                    $display("  [BRIDGE] Last beat");
+                    $display("  [BRIDGE] Last beat, ID=%0d", read_id);
                 end
                 
                 read_beat_count <= read_beat_count + 1;
@@ -478,7 +503,7 @@ always @(posedge clk or negedge reset_n) begin
         s_rresp <= 2'b00;
     end else begin
         m_burstcount <= 1'b1;
-        s_rresp <= 2'b00;
+        s_rresp <= 2'b00;  // OKAY response
     end
 end
 
