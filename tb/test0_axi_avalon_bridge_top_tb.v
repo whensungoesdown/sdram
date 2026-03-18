@@ -8,7 +8,7 @@ module top_tb();
 localparam CLK_PERIOD = 13.333;  // 75MHz = 13.333ns
 localparam AXI_ADDR_WIDTH = 32;
 localparam AXI_DATA_WIDTH = 64;
-localparam AVALON_ADDR_WIDTH = 25;
+localparam AVALON_ADDR_WIDTH = 24;
 localparam AVALON_DATA_WIDTH = 16;
 localparam AXI_ID_WIDTH = 4;
 
