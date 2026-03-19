@@ -6,11 +6,11 @@ echo
 cd test0_axi_avalon_bridge
 echo "test0_axi_avalon_bridge"
 result=$(./simulate.sh)
-if echo "$result" | grep "PASS"; then
-    printf "PASS!\n"
-elif echo "$result" | grep "FAIL"; then
+if echo "$result" | grep "FAIL"; then
     printf "FAIL!\n"
     exit 1
+elif echo "$result" | grep "PASS"; then
+    printf "PASS!\n"
 else
     printf "Unknown result\n"
     exit 1
@@ -19,7 +19,7 @@ echo ""
 cd ..
 
 
-cd test0_axi_avalon_bridge
+cd test1_sdram_controller
 echo "test1_sdram_controller"
 result=$(./simulate.sh)
 if echo "$result" | grep "PASS"; then
