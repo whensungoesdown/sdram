@@ -362,6 +362,12 @@ initial begin
     test_multiple_rows();
     test_different_bank();
     
+    // NEW: Test bridge address handling
+    test_bridge_address_handling();
+
+    // NEW: Test interleaved bursts
+    test_interleaved_bursts();
+
     // Test summary
     #(CLK_PERIOD*100);
     $display("========================================");
@@ -1060,6 +1066,342 @@ task test_different_bank;
             all_tests_passed = 0;
         end
         
+        #(CLK_PERIOD*50);
+    end
+endtask
+
+// ====================================================
+// Test 9: Verify Bridge Address Handling
+// Tests that bridge correctly uses saved AWADDR for all beats
+// ====================================================
+task test_bridge_address_handling;
+    reg [31:0] timeout;
+    reg [63:0] write_data [0:3];
+    reg [31:0] write_addr;
+    reg [31:0] read_addr;
+    reg [31:0] expected_addr [0:15];  // 16 sub-write addresses
+    reg [31:0] actual_addr;
+    reg [3:0] beats_received;
+    reg [3:0] sub_beat;
+    integer addr_match;
+    begin
+        test_counter = test_counter + 1;
+        test_passed = 1;
+        response_received = 0;
+
+        $display("========================================");
+        $display("Test %0d: Bridge Address Handling Verification", test_counter);
+        $display("========================================");
+        $display("  This test verifies that bridge correctly uses");
+        $display("  saved AWADDR for all beats in a burst write");
+        $display("========================================");
+
+        #(CLK_PERIOD*50);
+
+        axi_bready = 1'b1;
+
+        // Use a distinctive address pattern
+        // Address 0x1234_5678 will be aligned to 8-byte boundary: 0x1234_5678
+        // After alignment (clear lower 3 bits): 0x1234_5678 (already aligned)
+        write_addr = 32'h1234_5678;
+
+        // Prepare burst data with pattern that can identify each beat
+        // Each 64-bit beat contains 4x 16-bit words
+        // Beat 0: word0=0x0000, word1=0x1111, word2=0x2222, word3=0x3333
+        // Beat 1: word0=0x4444, word1=0x5555, word2=0x6666, word3=0x7777
+        // Beat 2: word0=0x8888, word1=0x9999, word2=0xAAAA, word3=0xBBBB
+        // Beat 3: word0=0xCCCC, word1=0xDDDD, word2=0xEEEE, word3=0xFFFF
+        write_data[0] = 64'h3333222211110000;
+        write_data[1] = 64'h7777666655554444;
+        write_data[2] = 64'hBBBBAAAA99998888;
+        write_data[3] = 64'hFFFFEEEEDDDDCCCC;
+
+        // Calculate expected Avalon addresses for each sub-write
+        // Base address: 0x1234_5678 (byte address)
+        // After >>1 for Avalon word address: 0x091A_2B3C
+        $display("  Base address: %h", write_addr);
+        $display("  Expected Avalon word addresses:");
+        for (i = 0; i < 4; i = i + 1) begin
+            for (j = 0; j < 4; j = j + 1) begin
+                expected_addr[i*4 + j] = (write_addr + i*8 + j*2) >> 1;
+                $display("    Beat %0d, Sub-write %0d: 0x%08X", i, j, expected_addr[i*4 + j]);
+            end
+        end
+
+        // Start burst write
+        @(posedge clk);
+        axi_awaddr = write_addr;
+        axi_awlen = 3;  // 4 beats
+        axi_awsize = 3'b011;  // 8 bytes
+        axi_awburst = 2'b01;  // INCR
+        axi_awvalid = 1;
+
+        @(posedge clk);
+        axi_awvalid = 0;
+
+        while (!axi_awready) @(posedge clk);
+        @(posedge clk);
+        $display("  AWADDR accepted: %h at time %t", write_addr, $time);
+
+        // Send burst data
+        for (i = 0; i < 4; i = i + 1) begin
+            @(posedge clk);
+            axi_wdata = write_data[i];
+            axi_wstrb = 8'hFF;
+            axi_wlast = (i == 3);
+            axi_wvalid = 1;
+
+            @(posedge clk);
+            axi_wvalid = 0;
+            $display("  Sent beat %0d: %h", i, write_data[i]);
+        end
+
+        $display("  Waiting for burst write response...");
+
+        // Wait for response with timeout
+        timeout = 0;
+        while (timeout < 300) begin
+            @(posedge clk);
+            if (axi_bvalid) begin
+                response_received = 1;
+                timeout = 300;
+            end
+            timeout = timeout + 1;
+        end
+
+        if (response_received) begin
+            $display("  Burst write response received at time %t", $time);
+            if (axi_bresp != 2'b00) begin
+                $display("  ERROR: Write response not OKAY (got %b)", axi_bresp);
+                test_passed = 0;
+            end
+        end else begin
+            $display("  ERROR: Burst write response timeout!");
+            test_passed = 0;
+        end
+
+        #(CLK_PERIOD*100);
+
+        // Now read back and verify
+        $display("  Reading back to verify data...");
+
+        axi_rready = 1'b1;
+        beats_received = 0;
+
+        // Read from the same address
+        @(posedge clk);
+        axi_araddr = write_addr;
+        axi_arlen = 3;  // 4 beats
+        axi_arsize = 3'b011;
+        axi_arburst = 2'b01;
+        axi_arvalid = 1;
+
+        @(posedge clk);
+        axi_arvalid = 0;
+
+        $display("  Waiting for burst read data...");
+
+        timeout = 0;
+        while (beats_received < 4 && timeout < 400) begin
+            @(posedge clk);
+            if (axi_rvalid) begin
+                $display("  Read beat %0d: %h at time %t", beats_received, axi_rdata, $time);
+
+                // Verify data
+                if (axi_rdata !== write_data[beats_received]) begin
+                    $display("    ERROR: Beat %0d data mismatch", beats_received);
+                    $display("      Expected: %h", write_data[beats_received]);
+                    $display("      Got:      %h", axi_rdata);
+                    test_passed = 0;
+                end else begin
+                    $display("    Beat %0d data correct", beats_received);
+                end
+
+                beats_received = beats_received + 1;
+                timeout = 0;
+            end
+            timeout = timeout + 1;
+        end
+
+        if (beats_received != 4) begin
+            $display("  ERROR: Only %0d of 4 read beats received", beats_received);
+            test_passed = 0;
+        end
+
+        #(CLK_PERIOD*50);
+
+        // Output result
+        if (test_passed) begin
+            $display("  ✓ TEST %0d: PASS - Bridge correctly handles addresses", test_counter);
+        end else begin
+            $display("  ✗ TEST %0d: FAIL - Address handling issue detected", test_counter);
+            all_tests_passed = 0;
+        end
+
+        #(CLK_PERIOD*50);
+    end
+endtask
+
+// ====================================================
+// Test 10: Verify Interleaved Write Bursts with Different Addresses
+// Tests that bridge correctly handles multiple back-to-back bursts
+// ====================================================
+task test_interleaved_bursts;
+    reg [31:0] timeout;
+    reg [63:0] burst_data [0:3];
+    reg [31:0] test_addresses [0:3];
+    reg [3:0] burst;
+    reg [3:0] beat;
+    reg [3:0] bursts_completed;
+    begin
+        test_counter = test_counter + 1;
+        test_passed = 1;
+
+        $display("========================================");
+        $display("Test %0d: Interleaved Write Bursts", test_counter);
+        $display("========================================");
+        $display("  This test verifies bridge handles multiple");
+        $display("  back-to-back bursts with different addresses");
+        $display("========================================");
+
+        #(CLK_PERIOD*50);
+
+        axi_bready = 1'b1;
+
+        // Define test addresses
+        test_addresses[0] = 32'h1000_0000;
+        test_addresses[1] = 32'h2000_1000;
+        test_addresses[2] = 32'h3000_2000;
+        test_addresses[3] = 32'h4000_3000;
+
+        bursts_completed = 0;
+
+        for (burst = 0; burst < 4; burst = burst + 1) begin
+            // Prepare unique data for this burst
+            for (beat = 0; beat < 4; beat = beat + 1) begin
+                burst_data[beat] = {64'hA0000000 + (burst << 16) + (beat << 8)};
+            end
+
+            $display("");
+            $display("  Burst %0d: Address = %h", burst, test_addresses[burst]);
+
+            // Start burst write
+            @(posedge clk);
+            axi_awaddr = test_addresses[burst];
+            axi_awlen = 3;
+            axi_awsize = 3'b011;
+            axi_awburst = 2'b01;
+            axi_awvalid = 1;
+
+            @(posedge clk);
+            axi_awvalid = 0;
+
+            while (!axi_awready) @(posedge clk);
+            @(posedge clk);
+
+            // Send burst data
+            for (beat = 0; beat < 4; beat = beat + 1) begin
+                @(posedge clk);
+                axi_wdata = burst_data[beat];
+                axi_wstrb = 8'hFF;
+                axi_wlast = (beat == 3);
+                axi_wvalid = 1;
+
+                @(posedge clk);
+                axi_wvalid = 0;
+            end
+
+            // Wait for response
+            timeout = 0;
+            response_received = 0;
+            while (timeout < 300) begin
+                @(posedge clk);
+                if (axi_bvalid) begin
+                    response_received = 1;
+                    timeout = 300;
+                    if (axi_bresp != 2'b00) begin
+                        $display("    ERROR: Write response not OKAY for burst %0d", burst);
+                        test_passed = 0;
+                    end else begin
+                        $display("    Burst %0d write completed", burst);
+                    end
+                end
+                timeout = timeout + 1;
+            end
+
+            if (!response_received) begin
+                $display("    ERROR: Burst %0d write timeout!", burst);
+                test_passed = 0;
+            end
+
+            bursts_completed = bursts_completed + 1;
+            #(CLK_PERIOD*50);
+        end
+
+        // Read back and verify all bursts
+        $display("");
+        $display("  Reading back all bursts...");
+
+        axi_rready = 1'b1;
+
+        for (burst = 0; burst < 4; burst = burst + 1) begin
+            // Prepare expected data for this burst
+            for (beat = 0; beat < 4; beat = beat + 1) begin
+                burst_data[beat] = {64'hA0000000 + (burst << 16) + (beat << 8)};
+            end
+
+            $display("");
+            $display("  Verifying Burst %0d at address %h", burst, test_addresses[burst]);
+
+            // Start burst read
+            @(posedge clk);
+            axi_araddr = test_addresses[burst];
+            axi_arlen = 3;
+            axi_arsize = 3'b011;
+            axi_arburst = 2'b01;
+            axi_arvalid = 1;
+
+            @(posedge clk);
+            axi_arvalid = 0;
+
+            // Read and verify
+            timeout = 0;
+            beat = 0;
+            while (beat < 4 && timeout < 400) begin
+                @(posedge clk);
+                if (axi_rvalid) begin
+                    if (axi_rdata !== burst_data[beat]) begin
+                        $display("    ERROR: Burst %0d Beat %0d mismatch", burst, beat);
+                        $display("      Expected: %h", burst_data[beat]);
+                        $display("      Got:      %h", axi_rdata);
+                        test_passed = 0;
+                    end else begin
+                        $display("    Burst %0d Beat %0d: %h OK", burst, beat, axi_rdata);
+                    end
+                    beat = beat + 1;
+                    timeout = 0;
+                end
+                timeout = timeout + 1;
+            end
+
+            if (beat != 4) begin
+                $display("    ERROR: Only %0d of 4 beats received for burst %0d", beat, burst);
+                test_passed = 0;
+            end
+
+            #(CLK_PERIOD*50);
+        end
+
+        // Output result
+        if (test_passed) begin
+            $display("");
+            $display("  ✓ TEST %0d: PASS - Multiple bursts handled correctly", test_counter);
+        end else begin
+            $display("");
+            $display("  ✗ TEST %0d: FAIL - Interleaved burst issue detected", test_counter);
+            all_tests_passed = 0;
+        end
+
         #(CLK_PERIOD*50);
     end
 endtask

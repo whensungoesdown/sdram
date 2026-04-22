@@ -103,6 +103,8 @@ wire                         write_fifo_full;
 
 // AXI burst tracking
 reg [AXI_ID_WIDTH-1:0]       write_axi_id;
+reg [AXI_ADDR_WIDTH-1:0]     write_base_addr;            // Saved base address from AW
+reg [AXI_ADDR_WIDTH-1:0]     write_base_addr_aligned;    // 8-byte aligned base address
 reg [7:0]                    write_axi_total_beats;      // Total AXI beats in burst (awlen+1)
 reg [7:0]                    write_axi_beats_received;   // AXI beats received so far
 reg                          write_axi_last_beat_received;
@@ -182,6 +184,8 @@ always @(posedge clk or negedge reset_n) begin
         write_resp_id <= {AXI_ID_WIDTH{1'b0}};
         write_avalon_total_subwrites <= 0;
         write_avalon_subwrites_remaining <= 0;
+        write_base_addr <= {AXI_ADDR_WIDTH{1'b0}};
+        write_base_addr_aligned <= {AXI_ADDR_WIDTH{1'b0}};
         
         for (i = 0; i < 4; i = i + 1) read_hold[i] <= 16'b0;
         write_timeout <= 16'b0;
@@ -206,6 +210,8 @@ always @(posedge clk or negedge reset_n) begin
                 // Write request
                 else if (s_awvalid && s_awready) begin
                     write_axi_id <= s_awid;
+                    write_base_addr <= s_awaddr;
+                    write_base_addr_aligned <= {s_awaddr[AXI_ADDR_WIDTH-1:3], 3'b0};
                     write_axi_total_beats <= s_awlen + 1;
                     write_axi_beats_received <= 8'b0;
                     write_axi_last_beat_received <= 1'b0;
@@ -265,14 +271,10 @@ always @(posedge clk or negedge reset_n) begin
                             write_data_fifo[fifo_idx] <= s_wdata[i * AVALON_DATA_WIDTH +: AVALON_DATA_WIDTH];
                             write_strb_fifo[fifo_idx] <= s_wstrb[i * STRB_PER_AVALON +: STRB_PER_AVALON];
                             
-                            // Calculate byte address for this 16-bit word
+                            // Calculate byte address for this 16-bit word using saved base address
                             beat_offset = write_axi_beats_received * BYTES_PER_AXI;
                             word_offset = i * BYTES_PER_AVALON;
-                            // Note: s_awaddr is used here - need to store base address from AW
-                            // For simplicity, using the address from AW channel stored earlier
-                            // This assumes s_awaddr is still valid, which it may not be
-                            // In production, store the base address in a register
-                            word_byte_addr = {s_awaddr[AXI_ADDR_WIDTH-1:3], 3'b0} + beat_offset + word_offset;
+                            word_byte_addr = write_base_addr_aligned + beat_offset + word_offset;
                             write_addr_fifo[fifo_idx] <= $unsigned(word_byte_addr >> 1);
                             
                             $display("  [BRIDGE]   Sub-write[%0d]: addr=%h data=%h", 
@@ -356,8 +358,8 @@ always @(posedge clk or negedge reset_n) begin
                         write_timeout <= write_timeout + 1;
                     end
                 end
-            end 
-
+            end
+            
             // ========================================
             // WRITE_RESP: Send write response to AXI
             // ========================================
