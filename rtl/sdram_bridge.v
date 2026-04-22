@@ -9,50 +9,50 @@ module axi_burst_master_to_avalon16 #(
     parameter AVALON_DATA_WIDTH = 16,
     parameter AXI_MAX_BURST = 16,
     parameter FIFO_DEPTH = 32,
-    parameter AXI_ID_WIDTH = 4      // Added ID width parameter
+    parameter AXI_ID_WIDTH = 4
 ) (
     // Clock and reset
     input  wire                        clk,
     input  wire                        reset_n,
     
     // AXI4 Slave Interface - Write Address Channel with ID
-    input  wire [AXI_ID_WIDTH-1:0]     s_awid,      // Added
+    input  wire [AXI_ID_WIDTH-1:0]     s_awid,
     input  wire [AXI_ADDR_WIDTH-1:0]   s_awaddr,
-    input  wire [7:0]                   s_awlen,
-    input  wire [2:0]                   s_awsize,
-    input  wire [1:0]                   s_awburst,
-    input  wire                         s_awvalid,
-    output reg                          s_awready,
+    input  wire [7:0]                  s_awlen,
+    input  wire [2:0]                  s_awsize,
+    input  wire [1:0]                  s_awburst,
+    input  wire                        s_awvalid,
+    output reg                         s_awready,
     
     // Write Data Channel
     input  wire [AXI_DATA_WIDTH-1:0]   s_wdata,
     input  wire [AXI_DATA_WIDTH/8-1:0] s_wstrb,
-    input  wire                         s_wlast,
-    input  wire                         s_wvalid,
-    output reg                          s_wready,
+    input  wire                        s_wlast,
+    input  wire                        s_wvalid,
+    output reg                         s_wready,
     
     // Write Response Channel with ID
-    output reg  [AXI_ID_WIDTH-1:0]      s_bid,       // Added
-    output reg  [1:0]                   s_bresp,
-    output reg                          s_bvalid,
-    input  wire                         s_bready,
+    output reg  [AXI_ID_WIDTH-1:0]     s_bid,
+    output reg  [1:0]                  s_bresp,
+    output reg                         s_bvalid,
+    input  wire                        s_bready,
     
     // Read Address Channel with ID
-    input  wire [AXI_ID_WIDTH-1:0]     s_arid,      // Added
+    input  wire [AXI_ID_WIDTH-1:0]     s_arid,
     input  wire [AXI_ADDR_WIDTH-1:0]   s_araddr,
-    input  wire [7:0]                   s_arlen,
-    input  wire [2:0]                   s_arsize,
-    input  wire [1:0]                   s_arburst,
-    input  wire                         s_arvalid,
-    output reg                          s_arready,
+    input  wire [7:0]                  s_arlen,
+    input  wire [2:0]                  s_arsize,
+    input  wire [1:0]                  s_arburst,
+    input  wire                        s_arvalid,
+    output reg                         s_arready,
     
     // Read Data Channel with ID
-    output reg  [AXI_ID_WIDTH-1:0]      s_rid,       // Added
+    output reg  [AXI_ID_WIDTH-1:0]     s_rid,
     output reg  [AXI_DATA_WIDTH-1:0]   s_rdata,
-    output reg  [1:0]                   s_rresp,
-    output reg                          s_rlast,
-    output reg                          s_rvalid,
-    input  wire                         s_rready,
+    output reg  [1:0]                  s_rresp,
+    output reg                         s_rlast,
+    output reg                         s_rvalid,
+    input  wire                        s_rready,
     
     // Avalon Master Interface
     output reg  [AVALON_ADDR_WIDTH-1:0] m_address,
@@ -60,18 +60,20 @@ module axi_burst_master_to_avalon16 #(
     output reg                          m_read,
     output reg  [AVALON_DATA_WIDTH-1:0] m_writedata,
     input  wire [AVALON_DATA_WIDTH-1:0] m_readdata,
-    output reg  [1:0]                    m_byteenable,
-    input  wire                          m_waitrequest,
-    input  wire                          m_readdatavalid,
-    output reg                           m_burstcount
+    output reg  [1:0]                   m_byteenable,
+    input  wire                         m_waitrequest,
+    input  wire                         m_readdatavalid,
+    output reg                          m_burstcount
 );
 
 // ====================================================
 // Local Parameters
 // ====================================================
-localparam BEATS_PER_AXI = AXI_DATA_WIDTH / AVALON_DATA_WIDTH;  // 64/16 = 4
-localparam STRB_PER_AVALON = AVALON_DATA_WIDTH / 8;             // 16/8 = 2
-localparam FIFO_PTR_WIDTH = $clog2(FIFO_DEPTH);
+localparam BYTES_PER_AVALON = AVALON_DATA_WIDTH / 8;      // 2 bytes per Avalon word
+localparam BYTES_PER_AXI    = AXI_DATA_WIDTH / 8;         // 8 bytes per AXI beat
+localparam AVALON_PER_AXI   = BYTES_PER_AXI / BYTES_PER_AVALON;  // 4 Avalon words per AXI beat
+localparam STRB_PER_AVALON  = AVALON_DATA_WIDTH / 8;      // 2 strobe bits per Avalon word
+localparam FIFO_PTR_WIDTH   = $clog2(FIFO_DEPTH);
 
 // ====================================================
 // States
@@ -92,7 +94,7 @@ localparam READ_DATA    = 4'd9;
 reg [3:0] state;
 
 // Write FIFO - store data, address, strobe, and ID
-reg [AXI_ID_WIDTH-1:0]       write_id_fifo [0:FIFO_DEPTH-1];      // Added ID FIFO
+reg [AXI_ID_WIDTH-1:0]       write_id_fifo [0:FIFO_DEPTH-1];
 reg [AVALON_ADDR_WIDTH-1:0]  write_addr_fifo [0:FIFO_DEPTH-1];
 reg [AVALON_DATA_WIDTH-1:0]  write_data_fifo [0:FIFO_DEPTH-1];
 reg [1:0]                    write_strb_fifo [0:FIFO_DEPTH-1];
@@ -103,14 +105,15 @@ wire                         write_fifo_full;
 
 // Write tracking
 reg [AXI_ADDR_WIDTH-1:0]     write_base_addr;
-reg [AXI_ID_WIDTH-1:0]       write_id;            // Added: store AWID
+reg [AXI_ADDR_WIDTH-1:0]     write_base_addr_aligned;  // 8-byte aligned base address
+reg [AXI_ID_WIDTH-1:0]       write_id;
 reg [7:0]                    write_len;
 reg [7:0]                    write_beat_count;
 reg [7:0]                    write_total_beats;
 reg                          write_response_pending;
 reg                          write_resp_sent;
-reg [AXI_ID_WIDTH-1:0]       write_resp_id;       // Added: ID for response
-reg                          write_fifo_stall;    // New: FIFO stall flag
+reg [AXI_ID_WIDTH-1:0]       write_resp_id;
+reg                          write_fifo_stall;
 
 // Write pipeline registers
 reg [AVALON_ADDR_WIDTH-1:0]  write_addr_reg;
@@ -118,9 +121,13 @@ reg [AVALON_DATA_WIDTH-1:0]  write_data_reg;
 reg [1:0]                    write_be_reg;
 reg                          write_valid_reg;
 
+// Write burst tracking
+reg [7:0]                    write_burst_remaining;    // Remaining sub-writes in current burst
+
 // Read tracking
 reg [AXI_ADDR_WIDTH-1:0]     read_base_addr;
-reg [AXI_ID_WIDTH-1:0]       read_id;             // Added: store ARID
+reg [AXI_ADDR_WIDTH-1:0]     read_base_addr_aligned;   // 8-byte aligned base address
+reg [AXI_ID_WIDTH-1:0]       read_id;
 reg [7:0]                    read_len;
 reg [7:0]                    read_beat_count;
 reg [2:0]                    read_sub_count;
@@ -131,9 +138,12 @@ reg [AVALON_ADDR_WIDTH-1:0]  read_addr_reg;
 reg                          read_valid_reg;
 reg [2:0]                    read_sub_reg;
 
-// Loop variables
+// Loop variables and temporary registers
 integer i;
 integer fifo_idx;
+reg [AXI_ADDR_WIDTH-1:0] word_byte_addr;
+reg [AXI_ADDR_WIDTH-1:0] beat_offset;
+reg [AXI_ADDR_WIDTH-1:0] word_offset;
 
 // Timeout counters
 reg [15:0] write_timeout;
@@ -178,16 +188,24 @@ always @(posedge clk or negedge reset_n) begin
         write_be_reg <= 2'b0;
         write_resp_id <= {AXI_ID_WIDTH{1'b0}};
         write_fifo_stall <= 1'b0;
+        write_base_addr_aligned <= {AXI_ADDR_WIDTH{1'b0}};
+        write_burst_remaining <= 8'b0;
         read_beat_count <= 8'b0;
         read_sub_count <= 3'b0;
         read_addr_reg <= {AVALON_ADDR_WIDTH{1'b0}};
         read_valid_reg <= 1'b0;
         read_sub_reg <= 3'b0;
+        read_base_addr_aligned <= {AXI_ADDR_WIDTH{1'b0}};
+        word_byte_addr <= {AXI_ADDR_WIDTH{1'b0}};
+        beat_offset <= {AXI_ADDR_WIDTH{1'b0}};
+        word_offset <= {AXI_ADDR_WIDTH{1'b0}};
         for (i = 0; i < 4; i = i + 1) read_hold[i] <= 16'b0;
         write_timeout <= 16'b0;
         read_timeout <= 16'b0;
     end else begin
         case (state)
+            // ========================================
+            // IDLE: Wait for AXI transactions
             // ========================================
             IDLE: begin
                 s_awready <= 1'b1;
@@ -206,13 +224,16 @@ always @(posedge clk or negedge reset_n) begin
                 end
                 // Check for write request
                 else if (s_awvalid && s_awready) begin
-                    // Write request - store AWID
+                    // Store write request information
                     write_base_addr <= s_awaddr;
-                    write_id <= s_awid;                // Store ID
+                    // Align to 8-byte boundary for correct address calculation
+                    write_base_addr_aligned <= {s_awaddr[AXI_ADDR_WIDTH-1:3], 3'b0};
+                    write_id <= s_awid;
                     write_len <= s_awlen;
                     write_total_beats <= s_awlen + 1;
                     write_beat_count <= 8'b0;
                     write_resp_sent <= 1'b0;
+                    write_burst_remaining <= AVALON_PER_AXI;  // Need to complete all sub-writes
                     s_awready <= 1'b0;
                     s_arready <= 1'b0;
                     $display("  [BRIDGE] Write request: ID=%0d addr=%h len=%0d", 
@@ -221,9 +242,11 @@ always @(posedge clk or negedge reset_n) begin
                 end
                 // Check for read request
                 else if (s_arvalid && s_arready) begin
-                    // Read request - store ARID
+                    // Store read request information
                     read_base_addr <= s_araddr;
-                    read_id <= s_arid;                  // Store ID
+                    // Align to 8-byte boundary for correct address calculation
+                    read_base_addr_aligned <= {s_araddr[AXI_ADDR_WIDTH-1:3], 3'b0};
+                    read_id <= s_arid;
                     read_len <= s_arlen;
                     read_beat_count <= 8'b0;
                     read_sub_count <= 3'b0;
@@ -236,82 +259,90 @@ always @(posedge clk or negedge reset_n) begin
             end
             
             // ========================================
-            // WRITE: Receive AXI data
+            // WRITE_DATA: Receive AXI write data beats
             // ========================================
             WRITE_DATA: begin
+                // Block new read/write requests while processing write
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
                 s_wready <= 1'b1;
                 
                 if (s_wvalid && s_wready) begin
-                    // Check if FIFO has space for all beats
-                    if (write_fifo_full || (write_tail + BEATS_PER_AXI) % FIFO_DEPTH == write_head) begin
-                        // FIFO full, stall
+                    // Check if FIFO has space for all sub-beats
+                    if (write_fifo_full || (write_tail + AVALON_PER_AXI) % FIFO_DEPTH == write_head) begin
+                        // FIFO full, stall the AXI write data channel
                         write_fifo_stall <= 1'b1;
                         s_wready <= 1'b0;
                         $display("  [BRIDGE] Write FIFO full, stalling");
-                        // Stay in WRITE_DATA state
                     end else begin
                         $display("  [BRIDGE] Write data received: beat=%0d data=%h", 
                                  write_beat_count, s_wdata);
                         
-                        // Decompose 64-bit data into 4 16-bit words
-                        for (i = 0; i < BEATS_PER_AXI; i = i + 1) begin
+                        // Decompose 64-bit AXI data into 16-bit Avalon words
+                        for (i = 0; i < AVALON_PER_AXI; i = i + 1) begin
                             fifo_idx = (write_tail + i) % FIFO_DEPTH;
                             
                             // Store ID (same for all sub-beats)
                             write_id_fifo[fifo_idx] <= write_id;
                             
-                            // Store 16-bit word
-                            write_data_fifo[fifo_idx] <= s_wdata[i * 16 +: 16];
+                            // Extract 16-bit word from the 64-bit data
+                            write_data_fifo[fifo_idx] <= s_wdata[i * AVALON_DATA_WIDTH +: AVALON_DATA_WIDTH];
                             
-                            // Store byte enable
-                            write_strb_fifo[fifo_idx] <= s_wstrb[i * 2 +: 2];
+                            // Extract byte enables for this 16-bit word (2 bits per word)
+                            write_strb_fifo[fifo_idx] <= s_wstrb[i * STRB_PER_AVALON +: STRB_PER_AVALON];
                             
-                            // Calculate address: convert byte address to word address
-                            // Use $unsigned to prevent truncation warnings
-                            write_addr_fifo[fifo_idx] <= $unsigned((write_base_addr >> 1) + 
-                                                         (write_beat_count * BEATS_PER_AXI) + i);
+                            // Calculate correct byte address for this 16-bit word
+                            // Formula: byte_addr = aligned_base + (beat * 8) + (i * 2)
+                            // Then convert to Avalon word address by shifting right by 1
+                            beat_offset = write_beat_count * BYTES_PER_AXI;
+                            word_offset = i * BYTES_PER_AVALON;
+                            word_byte_addr = write_base_addr_aligned + beat_offset + word_offset;
                             
-                            $display("  [BRIDGE]   FIFO[%0d]: ID=%0d addr=%h data=%h be=%b", 
-                                     fifo_idx, write_id,
-                                     $unsigned((write_base_addr >> 1) + (write_beat_count * BEATS_PER_AXI) + i),
-                                     s_wdata[i * 16 +: 16],
-                                     s_wstrb[i * 2 +: 2]);
+                            write_addr_fifo[fifo_idx] <= $unsigned(word_byte_addr >> 1);
+                            
+                            $display("  [BRIDGE]   FIFO[%0d]: ID=%0d byte_addr=%h word_addr=%h data=%h be=%b", 
+                                     fifo_idx, write_id, word_byte_addr,
+                                     $unsigned(word_byte_addr >> 1),
+                                     s_wdata[i * AVALON_DATA_WIDTH +: AVALON_DATA_WIDTH],
+                                     s_wstrb[i * STRB_PER_AVALON +: STRB_PER_AVALON]);
                         end
                         
                         // Update tail pointer
-                        write_tail <= (write_tail + BEATS_PER_AXI) % FIFO_DEPTH;
+                        write_tail <= (write_tail + AVALON_PER_AXI) % FIFO_DEPTH;
                         write_beat_count <= write_beat_count + 1;
                         write_fifo_stall <= 1'b0;
                         
-                        // Store ID for response (use the last beat's ID)
+                        // On last beat, prepare for address phase
                         if (s_wlast) begin
                             write_resp_id <= write_id;
+                            write_burst_remaining <= AVALON_PER_AXI;  // Reset for the coming burst
                             $display("  [BRIDGE] Last write data received, response ID=%0d", write_id);
                             s_wready <= 1'b0;
                             state <= WRITE_ADDR;
                         end
                     end
-                end else begin
-                    // Hold values when not writing
-                    write_tail <= write_tail;
                 end
             end
             
             // ========================================
-            // WRITE: Set up address and data
+            // WRITE_ADDR: Set up address and data for Avalon
             // ========================================
             WRITE_ADDR: begin
+                // Block new read/write requests while processing write
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
+                
                 if (!write_fifo_empty) begin
-                    // Set up address and data registers
-                    write_addr_reg <= $unsigned(write_addr_fifo[write_head]);
+                    // Set up address and data registers from FIFO
+                    write_addr_reg <= write_addr_fifo[write_head];
                     write_data_reg <= write_data_fifo[write_head];
                     write_be_reg <= write_strb_fifo[write_head];
-                    write_resp_id <= write_id_fifo[write_head];  // Store ID for response
+                    write_resp_id <= write_id_fifo[write_head];
                     write_valid_reg <= 1'b1;
                     
                     $display("  [BRIDGE] WRITE_ADDR: ID=%0d addr=%h data=%h be=%b", 
                              write_id_fifo[write_head],
-                             $unsigned(write_addr_fifo[write_head]), 
+                             write_addr_fifo[write_head], 
                              write_data_fifo[write_head], 
                              write_strb_fifo[write_head]);
                     
@@ -323,9 +354,13 @@ always @(posedge clk or negedge reset_n) begin
             end
             
             // ========================================
-            // WRITE: Assert write
+            // WRITE_AVALON: Perform Avalon write transfer
             // ========================================
             WRITE_AVALON: begin
+                // Block new read/write requests while processing write
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
+                
                 // Drive address and data from registers and assert write
                 if (write_valid_reg) begin
                     m_address <= write_addr_reg;
@@ -337,30 +372,40 @@ always @(posedge clk or negedge reset_n) begin
                              write_addr_reg, write_data_reg, write_be_reg);
                 end
                 
-                // Wait for acceptance
+                // Wait for Avalon slave to accept the write
                 if (!m_waitrequest && m_write) begin
                     $display("  [BRIDGE] Write accepted at time %t", $time);
                     m_write <= 1'b0;
                     
-                    // Update head pointer
+                    // Update head pointer to remove completed transfer from FIFO
                     write_head <= (write_head + 1) % FIFO_DEPTH;
                     write_timeout <= 16'b0;
                     
-                    // Check if all writes are done
-                    if (((write_head + 1) % FIFO_DEPTH) == write_tail) begin
-                        $display("  [BRIDGE] All writes completed at time %t", $time);
+                    // Decrement remaining sub-writes in current burst
+                    if (write_burst_remaining > 0) begin
+                        write_burst_remaining <= write_burst_remaining - 1;
+                    end
+                    
+                    // Check if all writes in the current burst are completed
+                    if (write_burst_remaining == 1) begin
+                        // This was the last sub-write of the burst
+                        $display("  [BRIDGE] Write burst completed at time %t", $time);
                         write_response_pending <= 1'b1;
+                        state <= WRITE_RESP;
+                    end else if (((write_head + 1) % FIFO_DEPTH) == write_tail) begin
+                        // FIFO empty, no more writes
                         state <= IDLE;
                     end else begin
-                        // More writes to do
+                        // More writes to process in this burst
                         state <= WRITE_ADDR;
                     end
                 end else begin
+                    // Timeout protection for stuck writes
                     if (write_timeout == 16'hFFFF) begin
-                        $display("  [BRIDGE] Write timeout!");
+                        $display("  [BRIDGE] Write timeout! addr=%h", m_address);
                         write_response_pending <= 1'b1;
                         m_write <= 1'b0;
-                        state <= IDLE;
+                        state <= WRITE_RESP;
                         write_timeout <= 16'b0;
                     end else begin
                         write_timeout <= write_timeout + 1;
@@ -369,9 +414,13 @@ always @(posedge clk or negedge reset_n) begin
             end
             
             // ========================================
-            // WRITE: Send response
+            // WRITE_RESP: Send write response to AXI
             // ========================================
             WRITE_RESP: begin
+                // Block new read/write requests until response is sent
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
+                
                 if (!s_bvalid) begin
                     s_bresp <= 2'b00;           // OKAY response
                     s_bid <= write_resp_id;      // Return stored ID
@@ -385,10 +434,12 @@ always @(posedge clk or negedge reset_n) begin
                     $display("  [BRIDGE] Write response accepted: ID=%0d at time %t", 
                              s_bid, $time);
                     s_bvalid <= 1'b0;
+                    // Re-enable new requests only after response is sent
                     s_awready <= 1'b1;
                     s_arready <= 1'b1;
                     write_response_pending <= 1'b0;
                     write_resp_sent <= 1'b0;
+                    write_burst_remaining <= 8'b0;
                     state <= IDLE;
                 end
                 
@@ -397,6 +448,9 @@ always @(posedge clk or negedge reset_n) begin
                     s_bvalid <= 1'b0;
                     write_response_pending <= 1'b0;
                     write_resp_sent <= 1'b0;
+                    s_awready <= 1'b1;
+                    s_arready <= 1'b1;
+                    write_burst_remaining <= 8'b0;
                     state <= IDLE;
                     write_timeout <= 16'b0;
                 end else begin
@@ -405,30 +459,42 @@ always @(posedge clk or negedge reset_n) begin
             end
             
             // ========================================
-            // READ: Set up address
+            // READ_ADDR: Set up address for Avalon read
             // ========================================
             READ_ADDR: begin
-                read_addr_reg <= $unsigned((read_base_addr >> 1) + 
-                                 (read_beat_count * BEATS_PER_AXI) + read_sub_count);
+                // Block new read/write requests while processing read
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
+                
+                // Calculate the byte address for this sub-read
+                beat_offset = read_beat_count * BYTES_PER_AXI;
+                word_offset = read_sub_count * BYTES_PER_AVALON;
+                word_byte_addr = read_base_addr_aligned + beat_offset + word_offset;
+                
+                read_addr_reg <= $unsigned(word_byte_addr >> 1);
                 read_sub_reg <= read_sub_count;
                 read_valid_reg <= 1'b1;
                 
-                $display("  [BRIDGE] READ_ADDR: ID=%0d beat=%0d sub=%0d addr=0x%h", 
-                         read_id, read_beat_count, read_sub_count, 
-                         $unsigned((read_base_addr >> 1) + (read_beat_count * BEATS_PER_AXI) + read_sub_count));
+                $display("  [BRIDGE] READ_ADDR: ID=%0d beat=%0d sub=%0d byte_addr=%h word_addr=%h", 
+                         read_id, read_beat_count, read_sub_count, word_byte_addr,
+                         $unsigned(word_byte_addr >> 1));
                 
                 state <= READ_AVALON;
             end
             
             // ========================================
-            // READ: Assert read and collect data
+            // READ_AVALON: Perform Avalon read transfers
             // ========================================
             READ_AVALON: begin
+                // Block new read/write requests while processing read
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
+                
                 if (read_valid_reg) begin
                     m_address <= read_addr_reg;
                     m_read <= 1'b1;
                     read_valid_reg <= 1'b0;
-                    $display("  [BRIDGE] READ_AVALON: asserting read at addr=0x%h", read_addr_reg);
+                    $display("  [BRIDGE] READ_AVALON: asserting read at addr=%h", read_addr_reg);
                 end
                 
                 if (!m_waitrequest && m_read) begin
@@ -441,7 +507,7 @@ always @(posedge clk or negedge reset_n) begin
                     // Store data in order of arrival
                     read_hold[read_sub_reg] <= m_readdata;
                     
-                    if (read_sub_reg == BEATS_PER_AXI - 1) begin
+                    if (read_sub_reg == AVALON_PER_AXI - 1) begin
                         state <= READ_COMBINE;
                     end else begin
                         read_sub_count <= read_sub_count + 1;
@@ -461,9 +527,13 @@ always @(posedge clk or negedge reset_n) begin
             end
             
             // ========================================
-            // READ: Combine data
+            // READ_COMBINE: Combine 16-bit reads into 64-bit AXI data
             // ========================================
             READ_COMBINE: begin
+                // Block new read/write requests while combining data
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
+                
                 // Little-endian: hold[0] is LSB, hold[3] is MSB
                 s_rdata <= {read_hold[3], read_hold[2], read_hold[1], read_hold[0]};
                 s_rid <= read_id;                       // Return stored ID
@@ -486,15 +556,19 @@ always @(posedge clk or negedge reset_n) begin
             end
             
             // ========================================
-            // READ: Send to AXI
+            // READ_DATA: Send data to AXI read channel
             // ========================================
             READ_DATA: begin
+                // Block new read/write requests while sending read data
+                s_awready <= 1'b0;
+                s_arready <= 1'b0;
+                
                 if (s_rready) begin
                     s_rvalid <= 1'b0;
                     s_rlast <= 1'b0;
                     
                     if (read_beat_count > read_len) begin
-                        // Burst complete
+                        // Burst complete, re-enable new requests
                         s_arready <= 1'b1;
                         s_awready <= 1'b1;
                         state <= IDLE;
@@ -522,7 +596,7 @@ always @(posedge clk or negedge reset_n) begin
         s_rresp <= 2'b00;
     end else begin
         m_burstcount <= 1'b1;  // Single-beat bursts on Avalon
-        s_rresp <= 2'b00;      // OKAY response
+        s_rresp <= 2'b00;      // OKAY response for reads
     end
 end
 

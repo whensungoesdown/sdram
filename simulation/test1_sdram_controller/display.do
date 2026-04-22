@@ -48,3 +48,26 @@ add wave -position end  result:/top_tb/axi_wready
 add wave -position end  result:/top_tb/axi_wstrb
 add wave -position end  result:/top_tb/axi_wvalid
 add wave -divider
+add wave -position end  result:/top_tb/u_axi_bridge/s_araddr
+add wave -position end  result:/top_tb/u_axi_bridge/s_arburst
+add wave -position end  result:/top_tb/u_axi_bridge/s_arid
+add wave -position end  result:/top_tb/u_axi_bridge/s_arlen
+add wave -position end  result:/top_tb/u_axi_bridge/s_arready
+add wave -position end  result:/top_tb/u_axi_bridge/s_arsize
+add wave -position end  result:/top_tb/u_axi_bridge/s_arvalid
+add wave -position end  result:/top_tb/u_axi_bridge/s_rdata
+add wave -position end  result:/top_tb/u_axi_bridge/s_rid
+add wave -position end  result:/top_tb/u_axi_bridge/s_rlast
+add wave -position end  result:/top_tb/u_axi_bridge/s_rready
+add wave -position end  result:/top_tb/u_axi_bridge/s_rresp
+add wave -position end  result:/top_tb/u_axi_bridge/s_rvalid
+add wave -divider
+add wave -position end  result:/top_tb/u_axi_bridge/m_address
+add wave -position end  result:/top_tb/u_axi_bridge/m_burstcount
+add wave -position end  result:/top_tb/u_axi_bridge/m_byteenable
+add wave -position end  result:/top_tb/u_axi_bridge/m_read
+add wave -position end  result:/top_tb/u_axi_bridge/m_readdata
+add wave -position end  result:/top_tb/u_axi_bridge/m_readdatavalid
+add wave -position end  result:/top_tb/u_axi_bridge/m_waitrequest
+add wave -position end  result:/top_tb/u_axi_bridge/m_write
+add wave -position end  result:/top_tb/u_axi_bridge/m_writedata

@@ -301,6 +301,7 @@ end
 initial begin
     // Initialize all signals
     reset_n = 0;
+    axi_awid = 0;
     axi_awaddr = 0;
     axi_awlen = 0;
     axi_awsize = 3'b011;  // 8 bytes
@@ -311,6 +312,7 @@ initial begin
     axi_wlast = 0;
     axi_wvalid = 0;
     axi_bready = 1;
+    axi_arid = 0;
     axi_araddr = 0;
     axi_arlen = 0;
     axi_arsize = 3'b011;
